@@ -89,8 +89,21 @@ function App() {
     await refresh();
   }
 
+  async function updateTask(eventId, payload) {
+    await request(`/events/${eventId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    await refresh();
+  }
+
+  async function deleteTask(eventId) {
+    await request(`/events/${eventId}`, { method: "DELETE" });
+    await refresh();
+  }
+
   async function deleteCourse(course) {
-    if (!window.confirm(`Delete ${course.code} and all of its tasks? This cannot be undone.`)) return;
     try {
       await request(`/courses/${course.id}`, { method: "DELETE" });
       await refresh();
@@ -109,6 +122,8 @@ function App() {
         courseMap={courseMap}
         setStatus={setStatus}
         createTask={createTask}
+        updateTask={updateTask}
+        deleteTask={deleteTask}
       />
     );
   } else if (view === "calendar") {
