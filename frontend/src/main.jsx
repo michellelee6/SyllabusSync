@@ -77,7 +77,7 @@ function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
-    refresh();
+    await refresh();
   }
 
   async function createTask(payload) {
@@ -87,6 +87,17 @@ function App() {
       body: JSON.stringify(payload),
     });
     await refresh();
+  }
+
+  async function deleteCourse(course) {
+    if (!window.confirm(`Delete ${course.code} and all of its tasks? This cannot be undone.`)) return;
+    try {
+      await request(`/courses/${course.id}`, { method: "DELETE" });
+      await refresh();
+      setNotice(`${course.code} was deleted.`);
+    } catch (error) {
+      setNotice(error.message);
+    }
   }
 
   let page;
@@ -103,17 +114,16 @@ function App() {
   } else if (view === "calendar") {
     page = <AcademicCalendar events={events} courseMap={courseMap}/>;
   } else if (view === "grades") {
-    page = <GradeCalculator events={events} completedWeight={completedWeight} totalWeight={totalWeight}/>;
+    page = <GradeCalculator courses={courses} events={events}/>;
   } else {
     page = (
       <Dashboard
         courses={courses}
         events={events}
         courseMap={courseMap}
-        completedWeight={completedWeight}
-        totalWeight={totalWeight}
         setView={setView}
         openChat={() => setChatOpen(true)}
+        setStatus={setStatus}
       />
     );
   }
@@ -126,6 +136,7 @@ function App() {
         currentView={view}
         setView={setView}
         upload={upload}
+        deleteCourse={deleteCourse}
         apiUrl={API}
       />
       <main className="main-content">

@@ -1,29 +1,91 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { DndContext, PointerSensor, closestCorners, useDroppable, useSensor, useSensors } from "@dnd-kit/core";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Plus } from "lucide-react";
 import { formatWeight } from "../lib/format";
 import { GradeRibbon } from "./Ledger";
 
 const columns = [["todo", "To Do"], ["in_progress", "In Progress"], ["done", "Done"]];
+const columnId = status => `column-${status}`;
+const taskId = event => `event-${event.id}`;
+
+function groupedEvents(events) {
+  return Object.fromEntries(columns.map(([status]) => [status, events.filter(event => event.status === status)]));
+}
 
 export function TaskBoard({ events, courses, courseMap, setStatus, createTask }) {
-  const [draggedEvent, setDraggedEvent] = useState(null);
+  const [items, setItems] = useState(() => groupedEvents(events));
+  const [activeEvent, setActiveEvent] = useState(null);
   const [formOpen, setFormOpen] = useState(false);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   const doneWeight = events.filter(event => event.status === "done" && event.grade_weight != null).reduce((sum, event) => sum + event.grade_weight, 0);
 
-  async function dropOnColumn(status) {
-    if (draggedEvent && draggedEvent.status !== status) await setStatus(draggedEvent, status);
-    setDraggedEvent(null);
+  useEffect(() => setItems(groupedEvents(events)), [events]);
+
+  function findContainer(id, source = items) {
+    if (id?.startsWith("column-")) return id.replace("column-", "");
+    return Object.keys(source).find(status => source[status].some(event => taskId(event) === id));
+  }
+
+  function handleDragStart({ active }) {
+    const source = findContainer(active.id);
+    setActiveEvent(items[source]?.find(event => taskId(event) === active.id) || null);
+  }
+
+  function handleDragOver({ active, over }) {
+    if (!over) return;
+    setItems(current => {
+      const source = findContainer(active.id, current);
+      const destination = findContainer(over.id, current);
+      if (!source || !destination || source === destination) return current;
+      const activeIndex = current[source].findIndex(event => taskId(event) === active.id);
+      const moving = current[source][activeIndex];
+      const targetItems = current[destination];
+      const overIndex = targetItems.findIndex(event => taskId(event) === over.id);
+      const next = { ...current, [source]: current[source].filter(event => taskId(event) !== active.id) };
+      next[destination] = [...targetItems];
+      next[destination].splice(overIndex < 0 ? targetItems.length : overIndex, 0, moving);
+      return next;
+    });
+  }
+
+  async function handleDragEnd({ active, over }) {
+    const moved = activeEvent;
+    setActiveEvent(null);
+    if (!over || !moved) return;
+    const destination = findContainer(over.id);
+    if (destination && destination !== moved.status) await setStatus(moved, destination);
+  }
+
+  function handleDragCancel() {
+    setActiveEvent(null);
+    setItems(groupedEvents(events));
   }
 
   return <>
     <div className="board-actions"><button className="add-task-button" onClick={() => setFormOpen(true)}><Plus size={16}/>Add task</button></div>
-    <div className="board">{columns.map(([status, label]) => { const items = events.filter(event => event.status === status); return <section className="board-column" key={status} onDragOver={event => event.preventDefault()} onDrop={() => dropOnColumn(status)}><div className="column-head"><h2>{label}</h2><span>{items.length}</span></div>{items.length ? items.map(event => <TaskCard key={event.id} event={event} course={courseMap[event.course_id]} setDraggedEvent={setDraggedEvent}/>) : <EmptyColumn status={status} doneWeight={doneWeight}/>}</section>; })}</div>
+    <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}>
+      <div className="board">{columns.map(([status, label]) => <BoardColumn key={status} status={status} label={label} events={items[status] || []} courseMap={courseMap} doneWeight={doneWeight}/>)}</div>
+    </DndContext>
     {formOpen && <TaskForm courses={courses} close={() => setFormOpen(false)} createTask={createTask}/>} 
   </>;
 }
 
-function TaskCard({ event, course, setDraggedEvent }) {
-  return <article className="task-card" draggable onDragStart={() => setDraggedEvent(event)} onDragEnd={() => setDraggedEvent(null)}><div className="card-top"><p className="course-chip"><i style={{ background: course?.color }}/>{course?.code || "Course"}</p><GradeRibbon weight={event.grade_weight}/></div><h3>{event.title}</h3><p className="card-due">Due {event.due_date}</p><p className="drag-hint">Drag to change status</p></article>;
+function BoardColumn({ status, label, events, courseMap, doneWeight }) {
+  const { setNodeRef } = useDroppable({ id: columnId(status) });
+  return <section className="board-column" id={columnId(status)}>
+    <div className="column-head"><h2>{label}</h2><span>{events.length}</span></div>
+    <SortableContext items={events.map(taskId)} strategy={verticalListSortingStrategy}>
+      <div ref={setNodeRef} className="board-drop-zone">{events.length ? events.map(event => <TaskCard key={event.id} event={event} course={courseMap[event.course_id]}/>) : <EmptyColumn status={status} doneWeight={doneWeight}/>}</div>
+    </SortableContext>
+  </section>;
+}
+
+function TaskCard({ event, course }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: taskId(event) });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.35 : 1 };
+  return <article ref={setNodeRef} style={style} className="task-card" {...attributes} {...listeners}><div className="card-top"><p className="course-chip"><i style={{ background: course?.color }}/>{course?.code || "Course"}</p><GradeRibbon weight={event.grade_weight}/></div><h3>{event.title}</h3><p className="card-due">Due {event.due_date}</p><p className="drag-hint">Drag to move task</p></article>;
 }
 
 function EmptyColumn({ status, doneWeight }) {

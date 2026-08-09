@@ -1,16 +1,18 @@
 import { formatWeight } from "../lib/format";
 
 export function GradeRibbon({ weight }) {
+  if (weight == null) return null;
   return (
     <span className="grade-ribbon">
-      {weight != null ? formatWeight(weight) : "—"}
+      {formatWeight(weight)}
     </span>
   );
 }
 
-export function LedgerRow({ event, course }) {
+export function LedgerRow({ event, course, toggleComplete }) {
   return (
-    <article className="ledger-row">
+    <article className={`ledger-row${toggleComplete ? " checklist-row" : ""}`}>
+      {toggleComplete && <label className="task-check" title={`Mark ${event.title} complete`}><input type="checkbox" checked={event.status === "done"} onChange={() => toggleComplete(event)}/><span aria-hidden="true">✓</span></label>}
       <GradeRibbon weight={event.grade_weight}/>
       <div className="ledger-main">
         <h3>{event.title}</h3>

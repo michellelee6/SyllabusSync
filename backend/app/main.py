@@ -204,6 +204,15 @@ def get_course(course_id: int, session: Session = Depends(get_session)):
     return course_or_404(course_id, session)
 
 
+@app.delete("/api/courses/{course_id}", status_code=204)
+def delete_course(course_id: int, session: Session = Depends(get_session)):
+    course = course_or_404(course_id, session)
+    for event in session.exec(select(Event).where(Event.course_id == course_id)).all():
+        session.delete(event)
+    session.delete(course)
+    session.commit()
+
+
 @app.get("/api/events", response_model=list[Event])
 def list_events(course_id: Optional[int] = None, session: Session = Depends(get_session)):
     query = select(Event).order_by(Event.due_date)
