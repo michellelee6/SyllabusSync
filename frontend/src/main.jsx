@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { request, API } from "./lib/api";
+import { request, setToken, getToken } from "./lib/api";
 import { courseColors } from "./lib/format";
+import { AuthScreen } from "./components/AuthScreen";
 import { Sidebar } from "./components/Sidebar";
 import { Masthead } from "./components/Masthead";
 import { Dashboard } from "./components/Dashboard";
@@ -12,6 +13,8 @@ import { ChatDrawer } from "./components/ChatDrawer";
 import "./styles.css";
 
 function App() {
+  const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
   const [view, setView] = useState("overview");
   const [courses, setCourses] = useState([]);
   const [events, setEvents] = useState([]);
@@ -19,20 +22,56 @@ function App() {
   const [selectedCourse, setSelectedCourse] = useState("");
   const [notice, setNotice] = useState("");
 
+  const handleAuthenticated = useCallback(result => {
+    setToken(result.access_token);
+    setUser(result.user);
+    setNotice("");
+  }, []);
+
+  const signOut = useCallback(() => {
+    setToken(null);
+    setUser(null);
+    setCourses([]);
+    setEvents([]);
+    setSelectedCourse("");
+    setChatOpen(false);
+    setNotice("");
+  }, []);
+
+  useEffect(() => {
+    const token = getToken();
+    if (!token) {
+      setAuthReady(true);
+      return;
+    }
+    request("/auth/me")
+      .then(current => setUser(current))
+      .catch(() => setToken(null))
+      .finally(() => setAuthReady(true));
+  }, []);
+
   const refresh = async () => {
     try {
       const [courseList, eventList] = await Promise.all([request("/courses"), request("/events")]);
       setCourses(courseList);
       setEvents(eventList);
-      setSelectedCourse(current => current || String(courseList[0]?.id || ""));
-    } catch {
+      setSelectedCourse(current => {
+        if (current && courseList.some(course => String(course.id) === String(current))) return current;
+        return String(courseList[0]?.id || "");
+      });
+    } catch (error) {
+      if (String(error.message).toLowerCase().includes("sign in")) {
+        signOut();
+        return;
+      }
       setNotice("Start the FastAPI server to load your courses.");
     }
   };
 
   useEffect(() => {
+    if (!user) return;
     refresh();
-  }, []);
+  }, [user]);
 
   const courseMap = useMemo(
     () => Object.fromEntries(
@@ -113,6 +152,14 @@ function App() {
     }
   }
 
+  if (!authReady) {
+    return <div className="auth-shell"><div className="auth-panel auth-loading">Loading…</div></div>;
+  }
+
+  if (!user) {
+    return <AuthScreen onAuthenticated={handleAuthenticated} />;
+  }
+
   let page;
   if (view === "board") {
     page = (
@@ -152,7 +199,8 @@ function App() {
         setView={setView}
         upload={upload}
         deleteCourse={deleteCourse}
-        apiUrl={API}
+        user={user}
+        signOut={signOut}
       />
       <main className="main-content">
         <Masthead
